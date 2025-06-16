@@ -11,8 +11,37 @@ import time
 # Load environment variables
 load_dotenv()
 
-# Configure Gemini API
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+# Configure Gemini API with better error handling
+api_key = os.getenv("GOOGLE_API_KEY")
+
+# Check if API key is available
+if not api_key:
+    st.error("🚨 **API Key Missing!**")
+    st.markdown("""
+    ### To fix this issue:
+    
+    **For Streamlit Cloud/Community Cloud:**
+    1. Go to your app settings in Streamlit Cloud
+    2. Click on "Secrets" 
+    3. Add your secrets in TOML format:
+    ```toml
+    GOOGLE_API_KEY = "your_actual_api_key_here"
+    ```
+    
+    **For other deployments:**
+    - Set the environment variable `GOOGLE_API_KEY` in your deployment platform
+    - Or add it to your hosting service's environment variables section
+    
+    **Get your API key from:** [Google AI Studio](https://makersuite.google.com/app/apikey)
+    """)
+    st.stop()
+
+try:
+    genai.configure(api_key=api_key)
+except Exception as e:
+    st.error(f"❌ **API Configuration Error:** {str(e)}")
+    st.markdown("Please check if your API key is valid and has the necessary permissions.")
+    st.stop()
 
 # Page configuration
 st.set_page_config(
@@ -96,24 +125,51 @@ st.markdown("""
         border-radius: 10px;
         margin-bottom: 1rem;
     }
+    
+    .error-container {
+        background: #f8d7da;
+        color: #721c24;
+        padding: 1rem;
+        border-radius: 10px;
+        border: 1px solid #f5c6cb;
+        margin: 1rem 0;
+    }
+    
+    .success-container {
+        background: #d4edda;
+        color: #155724;
+        padding: 1rem;
+        border-radius: 10px;
+        border: 1px solid #c3e6cb;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize Gemini model
+# Initialize Gemini model with error handling
 @st.cache_resource
 def initialize_model():
-    return genai.GenerativeModel('gemini-2.0-flash-exp')
+    try:
+        return genai.GenerativeModel('gemini-2.0-flash-exp')
+    except Exception as e:
+        st.error(f"❌ **Model Initialization Error:** {str(e)}")
+        return None
 
 model = initialize_model()
+
+if not model:
+    st.error("❌ **Failed to initialize AI model.** Please check your API key and try again.")
+    st.stop()
 
 # Load Lottie animation
 def load_lottieurl(url):
     try:
-        r = requests.get(url)
+        r = requests.get(url, timeout=10)
         if r.status_code != 200:
             return None
         return r.json()
-    except:
+    except Exception as e:
+        st.warning(f"⚠️ Could not load animation: {str(e)}")
         return None
 
 # Initialize session state
@@ -127,9 +183,15 @@ if 'generated_content' not in st.session_state:
 st.markdown("""
 <div class="main-header">
     <h1>🤖 AI Assistant Pro</h1>
-    <p>Powered by Gemini-2.0 Flash | Your Ultimate AI Companion | Made by Mehwish Sheikh</p>
+    <p>Powered by Gemini-2.0 Flash | Your Ultimate AI Companion</p>
 </div>
 """, unsafe_allow_html=True)
+
+# API Status indicator
+if api_key:
+    st.sidebar.success("✅ API Connected")
+else:
+    st.sidebar.error("❌ API Not Connected")
 
 # Sidebar navigation
 with st.sidebar:
@@ -169,7 +231,7 @@ if selected == "🏠 Home":
         
         features = [
             ("✍️ Content Writer", "Generate short, medium, and long-form content for any purpose"),
-            ("🌐 Translator", "Translate text between 5 different languages instantly"),
+            ("🌐 Translator", "Translate text between 10 different languages instantly"),
             ("💻 Code Assistant", "Generate and explain code in multiple programming languages"),
             ("💬 AI Chatbot", "Have intelligent conversations with our advanced AI")
         ]
@@ -230,25 +292,32 @@ elif selected == "✍️ Content Writer":
                 
                 try:
                     response = model.generate_content(prompt)
-                    st.session_state.generated_content = response.text
-                    
-                    st.markdown("### 📄 Generated Content:")
-                    st.markdown(f"""
-                    <div class="output-container">
-                        {response.text}
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Download button
-                    st.download_button(
-                        label="📥 Download Content",
-                        data=response.text,
-                        file_name=f"{topic.replace(' ', '_')}_content.txt",
-                        mime="text/plain"
-                    )
-                    
+                    if response and response.text:
+                        st.session_state.generated_content = response.text
+                        
+                        st.markdown("### 📄 Generated Content:")
+                        st.markdown(f"""
+                        <div class="output-container">
+                            {response.text}
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Download button
+                        st.download_button(
+                            label="📥 Download Content",
+                            data=response.text,
+                            file_name=f"{topic.replace(' ', '_')}_content.txt",
+                            mime="text/plain"
+                        )
+                    else:
+                        st.error("❌ No content generated. Please try again.")
+                        
                 except Exception as e:
                     st.error(f"❌ Error generating content: {str(e)}")
+                    st.markdown("**Possible solutions:**")
+                    st.markdown("- Check your internet connection")
+                    st.markdown("- Verify your API key is valid")
+                    st.markdown("- Try a simpler topic")
         else:
             st.warning("⚠️ Please enter a topic to generate content.")
 
@@ -293,15 +362,20 @@ elif selected == "🌐 Translator":
                     
                     try:
                         response = model.generate_content(prompt)
-                        translated_text = response.text
-                        
-                        st.text_area("Translated text:", value=translated_text, height=200, key="translated")
-                        
-                        # Copy button simulation
-                        st.success("✅ Translation completed!")
+                        if response and response.text:
+                            translated_text = response.text
+                            
+                            st.text_area("Translated text:", value=translated_text, height=200, key="translated")
+                            st.success("✅ Translation completed!")
+                        else:
+                            st.error("❌ Translation failed. Please try again.")
                         
                     except Exception as e:
                         st.error(f"❌ Translation error: {str(e)}")
+                        st.markdown("**Possible solutions:**")
+                        st.markdown("- Check your internet connection")
+                        st.markdown("- Try shorter text")
+                        st.markdown("- Verify your API key")
             else:
                 st.warning("⚠️ Please enter text to translate.")
 
@@ -358,26 +432,32 @@ elif selected == "💻 Code Assistant":
                     
                     try:
                         response = model.generate_content(prompt)
-                        
-                        st.markdown("### 📝 Generated Code:")
-                        st.code(response.text, language=programming_lang.lower())
-                        
-                        # Download button
-                        file_extension = {
-                            "Python": "py", "JavaScript": "js", "Java": "java",
-                            "C++": "cpp", "C#": "cs", "Go": "go", "Rust": "rs",
-                            "PHP": "php", "Ruby": "rb", "Swift": "swift"
-                        }
-                        
-                        st.download_button(
-                            label="📥 Download Code",
-                            data=response.text,
-                            file_name=f"generated_code.{file_extension.get(programming_lang, 'txt')}",
-                            mime="text/plain"
-                        )
-                        
+                        if response and response.text:
+                            st.markdown("### 📝 Generated Code:")
+                            st.code(response.text, language=programming_lang.lower())
+                            
+                            # Download button
+                            file_extension = {
+                                "Python": "py", "JavaScript": "js", "Java": "java",
+                                "C++": "cpp", "C#": "cs", "Go": "go", "Rust": "rs",
+                                "PHP": "php", "Ruby": "rb", "Swift": "swift"
+                            }
+                            
+                            st.download_button(
+                                label="📥 Download Code",
+                                data=response.text,
+                                file_name=f"generated_code.{file_extension.get(programming_lang, 'txt')}",
+                                mime="text/plain"
+                            )
+                        else:
+                            st.error("❌ Code generation failed. Please try again.")
+                            
                     except Exception as e:
                         st.error(f"❌ Code generation error: {str(e)}")
+                        st.markdown("**Possible solutions:**")
+                        st.markdown("- Simplify your code description")
+                        st.markdown("- Check your internet connection")
+                        st.markdown("- Try a different programming language")
             else:
                 st.warning("⚠️ Please describe what you want the code to do.")
     
@@ -412,16 +492,21 @@ elif selected == "💻 Code Assistant":
                     
                     try:
                         response = model.generate_content(prompt)
-                        
-                        st.markdown("### 📚 Code Explanation:")
-                        st.markdown(f"""
-                        <div class="output-container">
-                            {response.text}
-                        </div>
-                        """, unsafe_allow_html=True)
+                        if response and response.text:
+                            st.markdown("### 📚 Code Explanation:")
+                            st.markdown(f"""
+                            <div class="output-container">
+                                {response.text}
+                            </div>
+                            """, unsafe_allow_html=True)
+                        else:
+                            st.error("❌ Code explanation failed. Please try again.")
                         
                     except Exception as e:
                         st.error(f"❌ Code explanation error: {str(e)}")
+                        st.markdown("**Try:**")
+                        st.markdown("- Pasting simpler code")
+                        st.markdown("- Checking your connection")
             else:
                 st.warning("⚠️ Please paste code to explain.")
 
@@ -473,16 +558,22 @@ elif selected == "💬 AI Chatbot":
                 """
                 
                 response = model.generate_content(prompt)
-                bot_response = response.text
-                
-                # Add bot response to history
-                st.session_state.chat_history.append(("assistant", bot_response))
-                
-                # Rerun to update chat display
-                st.rerun()
+                if response and response.text:
+                    bot_response = response.text
+                    
+                    # Add bot response to history
+                    st.session_state.chat_history.append(("assistant", bot_response))
+                    
+                    # Rerun to update chat display
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to get response. Please try again.")
                 
             except Exception as e:
                 st.error(f"❌ Chat error: {str(e)}")
+                st.markdown("**Try:**")
+                st.markdown("- Asking a simpler question")
+                st.markdown("- Checking your connection")
     
     # Clear chat button
     if st.button("🗑️ Clear Chat", key="clear_chat"):
